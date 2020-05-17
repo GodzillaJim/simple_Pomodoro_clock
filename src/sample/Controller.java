@@ -1,12 +1,11 @@
 package sample;
 
 import javafx.application.Platform;
-import javafx.beans.value.ChangeListener;
-import javafx.beans.value.ObservableValue;
 import javafx.concurrent.Task;
 import javafx.event.ActionEvent;
 import javafx.event.EventHandler;
 import javafx.fxml.FXML;
+import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
@@ -19,7 +18,6 @@ import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
-import javafx.stage.Popup;
 import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
@@ -30,11 +28,10 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Observable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class Controller extends Observable {
+public class Controller {
     static int sessionLengthValue = 25;
     Media audio;
     @FXML
@@ -67,7 +64,7 @@ public class Controller extends Observable {
     Button subtractBreakLength;
     @FXML
     Button addSessionLength;
-    int temporaryTime = sessionLengthValue * 60;
+    int temporaryTime;
     boolean paused = false;
     boolean running = false;
     MediaPlayer mediaPlayer;
@@ -77,12 +74,28 @@ public class Controller extends Observable {
             while (running) {
                 if (session) {
                     temporaryTime = sessionLengthValue * 60;
-                    session = false;
                 } else {
                     temporaryTime = breakLengthValue * 60;
-                    session = true;
                 }
-                while (temporaryTime > 0) {
+                if (session) {
+                    pool.execute(
+                            new Runnable() {
+                                @Override
+                                public void run() {
+                                    Platform.runLater(() -> indicatorLabel.setText("Session"));
+                                }
+                            }
+                    );
+                } else {
+                    pool.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            Platform.runLater(() -> indicatorLabel.setText("Break"));
+                        }
+                    });
+                }
+                session = !session;
+                while (temporaryTime >= 0) {
                     float remainingPercentage;
                     int sessionSeconds = sessionLengthValue * 60;
                     int breakSeconds = breakLengthValue * 60;
@@ -107,16 +120,13 @@ public class Controller extends Observable {
                     });
                     updateTimeRunner();
                     Thread.sleep(1000);
-                    if (!paused && running) {
+                    if (!paused) {
                         temporaryTime--;
-                        changeTime();
                     }
                     if (temporaryTime == 0) {
                         ringOnEndOfSession();
-                        Thread.sleep((long) audio.getDuration().toMillis());
                     }
                 }
-                reachedZero();
             }
             return null;
         }
@@ -124,15 +134,8 @@ public class Controller extends Observable {
 
     @FXML
     public void initialize() {
-        set.onMouseClickedProperty().addListener(new ChangeListener<EventHandler<? super MouseEvent>>() {
-            @Override
-            public void changed(ObservableValue<? extends EventHandler<? super MouseEvent>> observable, EventHandler<? super MouseEvent> oldValue, EventHandler<? super MouseEvent> newValue) {
-
-            }
-        });
         Media audio = new Media(new File("D:\\projects\\Artificial Intelligence\\Java\\javafx\\sample_ui\\src\\sample\\alert1.mp3").toURI().toString());
         setAudio(audio);
-        System.out.println(audio.durationProperty().toString());
         if (!SystemTray.isSupported()) {
             System.out.println("System tray not supported");
             return;
@@ -146,12 +149,18 @@ public class Controller extends Observable {
         SystemTray tray = SystemTray.getSystemTray();
         MenuItem aboutItem = new MenuItem("About");
         MenuItem exitItem = new MenuItem("Exit");
+        MenuItem restore = new MenuItem("Restore");
+        restore.addActionListener(e -> {
+            Main.getStage().setIconified(false);
+        });
 
         exitItem.addActionListener(e -> {
             Platform.exit();
             tray.remove(trayIcon);
         });
 
+        popupMenu.add(restore);
+        popupMenu.addSeparator();
         popupMenu.add(aboutItem);
         popupMenu.addSeparator();
         popupMenu.add(exitItem);
@@ -162,19 +171,9 @@ public class Controller extends Observable {
         } catch (Exception e) {
             e.printStackTrace();
         }
-        addObserver(display);
-
     }
-
     ExecutorService pool = Executors.newCachedThreadPool();
     Thread thread = new Thread(counter);
-
-    public void changeTime() {
-        String time = makeDate();
-        hasChanged();
-        notifyObservers(time);
-    }
-
     @FXML
     void increaseSessionLength() {
         if (getSessionLengthValue() < 59) {
@@ -184,7 +183,6 @@ public class Controller extends Observable {
             updateTimeRunner();
         }
     }
-
     public static int getSessionLengthValue() {
         return sessionLengthValue;
     }
@@ -220,7 +218,6 @@ public class Controller extends Observable {
             breakLengthValue--;
             breakLength.setText(String.valueOf(breakLengthValue));
         }
-        //updateGUI();
     }
     @FXML
     void play() throws FileNotFoundException {
@@ -243,6 +240,8 @@ public class Controller extends Observable {
             }
         });
     }
+
+    @FXML
     public void pauseCounter(ActionEvent actionEvent) throws InterruptedException {
         setPaused(true);
     }
@@ -263,56 +262,38 @@ public class Controller extends Observable {
         mediaPlayer.play();
     }
 
-    public void onMinimizingProperty() {
-    }
-
-    public void onMaximizingProperty() {
-    }
-
-    public void reachedZero() {
-        if (session) {
-            indicatorLabel.setText("Break");
-            Popup popup = new Popup();
-            popup.centerOnScreen();
-            popup.getContent().add(new Label("It's break time"));
-            popup.setHeight(300);
-            popup.setWidth(60);
-            popup.show(Main.getStage());
-        } else {
-            indicatorLabel.setText("Session");
-            Popup popup = new Popup();
-            popup.centerOnScreen();
-            popup.getContent().add(new Label("It's session"));
-            popup.show(Main.getStage());
-        }
-    }
-
     @FXML
     public void manageScene() throws IOException {
-        if (session) {
-            set.setText("Session");
-        } else {
-            set.setText("Break");
-        }
         Platform.runLater(new Runnable() {
             @Override
             public void run() {
-                topDisplay.setFont(new Font(45));
+                topDisplay.setFont(new Font(40));
                 topDisplay.setStyle("-fx-font-style: bold");
                 topDisplay.setAlignment(Pos.CENTER);
-                topDisplay.setTextFill(Color.RED);
+                topDisplay.setTextFill(Color.WHITE);
+                Label label = new Label();
+                label.setFont(new Font(13));
+                if (!session)
+                    label.setText("session");
+                else
+                    label.setText("break");
+
+                label.setPadding(new Insets(10, 0, 3, 0));
+                label.setAlignment(Pos.BOTTOM_RIGHT);
+                label.setTextFill(Color.WHITE);
                 StackPane pane = new StackPane();
                 pane.setPrefSize(150, 60);
                 pane.getChildren().add(topDisplay);
+                pane.getChildren().add(label);
+                StackPane.setMargin(label, new Insets(40, 0, 0, 0));
                 StackPane.setAlignment(pane, Pos.CENTER);
                 pane.setStyle("-fx-background-color: #" + 364895);
-
 
                 Scene sceneTwo = new Scene(pane);
                 Stage stage = new Stage();
                 stage.setScene(sceneTwo);
                 stage.setWidth(208);
-                stage.setHeight(60);
+                stage.setHeight(75);
                 stage.initStyle(StageStyle.UNDECORATED);
                 Rectangle2D bounds = Screen.getPrimary().getVisualBounds();
                 stage.setX((bounds.getWidth() - stage.getWidth()) / 2);
